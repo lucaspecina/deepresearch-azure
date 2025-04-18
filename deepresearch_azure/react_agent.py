@@ -8,8 +8,7 @@ import json
 import logging
 from openai import AzureOpenAI
 import deepresearch_azure.config as config
-# from deepresearch_azure.prompts import REACT_PROMPT
-from deepresearch_azure.prompts_dra import REACT_PROMPT
+from deepresearch_azure.prompts import REACT_PROMPT
 from deepresearch_azure.search_tools import get_all_tools
 
 class ReActAgent:
@@ -262,7 +261,7 @@ You have to approach research like a human researcher collaborating with you:
                 
                 # Parse and execute the action
                 action = self._parse_action(assistant_message)
-                print(f"\nAction: {action}")
+                # print(f"\nAction: {action}")
                 if not action:
                     self.logger.warning("Failed to parse action, asking for clarification")
                     context.append({"role": "user", "content": "I couldn't understand your action. Please provide a valid action in the format: Action: {\"name\": \"tool_name\", \"arguments\": {\"query\": \"your query\"}}."})
@@ -313,7 +312,7 @@ You have to approach research like a human researcher collaborating with you:
                     #         continue
                     
                     self.logger.info("Final answer received")
-                    print(f"\nFinal answer: {result['result']}")
+                    # print(f"\nFinal answer: {result['result']}")
                     return result["result"]
                 
                 # Add the observation to the conversation
