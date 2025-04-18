@@ -22,6 +22,6 @@ PROJECT_CONNECTION_STRING = os.getenv("PROJECT_CONNECTION_STRING")
 BING_CONNECTION_NAME = os.getenv("BING_CONNECTION_NAME")
 
 # ReAct agent settings
-MAX_ITERATIONS = 8  # Maximum number of reasoning iterations
-MAX_TOKENS = 1500   # Maximum tokens in response
+MAX_ITERATIONS = 50  # Maximum number of reasoning iterations
+MAX_TOKENS = 5000   # Maximum tokens in response
 TEMPERATURE = 0     # Temperature for LLM (0 = deterministic) 
