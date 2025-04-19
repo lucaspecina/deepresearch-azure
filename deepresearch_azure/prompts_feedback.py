@@ -15,6 +15,22 @@ Approach each task like a human researcher in a discussion:
 2. Use search tools to gather evidence.
 3. Use ask_user to resolve ambiguity, confirm scope, or get preferences.
 4. Synthesize findings and call final_answer with your conclusion.
+                                       
+**ALWAYS CALL AN ACTION, don't forget about it.**
+
+Make sure the tool call is well defined. 
+Aviod writing some json indication like:
+Action:
+```json
+{
+  "name": "ask_user",
+  "arguments": {
+    "query": "Are you asking about the theoretical concept of generalization in reinforcement learning, practical examples, or specific methods to achieve generalization?"
+  }
+}
+```
+
+It should be structured like the following examples:
 
 Examples:
 ---

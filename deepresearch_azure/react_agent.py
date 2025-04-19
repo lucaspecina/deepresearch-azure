@@ -8,8 +8,8 @@ import json
 import logging
 from openai import AzureOpenAI
 import deepresearch_azure.config as config
-from deepresearch_azure.prompts import REACT_PROMPT
 from deepresearch_azure.search_tools import get_all_tools
+from deepresearch_azure.prompts import REACT_PROMPT
 
 class ReActAgent:
     """
@@ -197,7 +197,6 @@ class ReActAgent:
         self.used_tools = set()
         
         # Initialize conversation history with simple string replacement
-        # Use string replacement instead of format to avoid issues with JSON braces
         system_prompt = REACT_PROMPT.system_prompt.replace("{tools}", self.tools_description)
         context = []
         
@@ -209,9 +208,10 @@ IMPORTANT INSTRUCTIONS:
 You have to approach research like a human researcher collaborating with you:
 
 1. You have to first reflect on your question to understand what you're asking and plan your approach.
-2. You have two main research tools:
+2. You have three main research tools:
    - search_rag: For searching internal documents and research papers
    - search_web: For searching public information on the internet
+   - ask_user: Ask the user (supervisor) for feedback, clarification, or scope.
 
 3. For technical questions like "How can I quantify paraffin content in crude oil?", you have to check both internal resources and public information, asking clarifying questions when needed.
 
@@ -220,9 +220,10 @@ You have to approach research like a human researcher collaborating with you:
 5. For company-specific questions like financial results, you have to prioritize internal documents while confirming with me if you need more context.
 
 6. You have to think critically throughout the process - planning, analyzing, reconsidering approaches and ensuring you're addressing the needs effectively.
+
+**ALWAYS CALL AN ACTION, don't forget about it.**
 """
         context.append({"role": "user", "content": initial_message})
-        # context.append({"role": "user", "content": query})
         
         iteration = 0
         while iteration < config.MAX_ITERATIONS:
@@ -246,48 +247,13 @@ You have to approach research like a human researcher collaborating with you:
                 assistant_message = response.choices[0].message.content
                 print(f"\nAssistant: {assistant_message}")
                 context.append({"role": "assistant", "content": assistant_message})
-                
-                # # Print agent's thought process
-                # if self.verbose:
-                #     print("\nAgent thought process:")
-                #     # Extract and print the Thought part if it exists
-                #     thought_match = re.search(r'Thought:(.*?)(?:Action:|$)', assistant_message, re.DOTALL)
-                #     if thought_match:
-                #         thought = thought_match.group(1).strip()
-                #         print(f"{thought}")
-                #     print("\nAgent action:")
-                # else:
-                #     print(f"\nAssistant: {assistant_message}")
-                
+
                 # Parse and execute the action
                 action = self._parse_action(assistant_message)
-                # print(f"\nAction: {action}")
                 if not action:
                     self.logger.warning("Failed to parse action, asking for clarification")
                     context.append({"role": "user", "content": "I couldn't understand your action. Please provide a valid action in the format: Action: {\"name\": \"tool_name\", \"arguments\": {\"query\": \"your query\"}}."})
                     continue
-                
-                # # If trying to provide final answer too early
-                # if action.get("name") == "final_answer" and (
-                #     iteration < self.min_iterations or 
-                #     len(self.used_tools) < 2  # At least 2 different tools should be used
-                # ):
-                #     # Encourage using both search tools
-                #     unused_tools = set(["search_rag", "search_web"]) - self.used_tools
-                #     if unused_tools:
-                #         suggested_tool = list(unused_tools)[0]
-                #         tool_desc = "research papers" if suggested_tool == "search_rag" else "the web"
-                #         self.logger.info(f"Encouraging use of {suggested_tool} before final answer")
-                        
-                #         # More detailed instruction when suggesting a search
-                #         if self.verbose:
-                #             print(f"\n[ALERT] Need to search {tool_desc} before finalizing answer!")
-                            
-                #         context.append({
-                #             "role": "user", 
-                #             "content": f"Please search {tool_desc} using {suggested_tool} before providing a final answer. We need information from both research papers AND web sources to give the most comprehensive answer."
-                #         })
-                #         continue
                 
                 # Execute the action
                 self.logger.info(f"Executing action: {action.get('name')}")
@@ -295,34 +261,8 @@ You have to approach research like a human researcher collaborating with you:
                 
                 # If this is the final answer, check if we used both tools
                 if result["is_final"]:
-                    # if len(self.used_tools) < 2 and iteration < config.MAX_ITERATIONS - 1:
-                    #     unused_tools = set(["search_rag", "search_web"]) - self.used_tools
-                    #     if unused_tools:
-                    #         suggested_tool = list(unused_tools)[0]
-                    #         tool_desc = "research papers" if suggested_tool == "search_rag" else "the web"
-                    #         self.logger.info(f"Suggesting use of {suggested_tool} before finalizing")
-                            
-                    #         if self.verbose:
-                    #             print(f"\n[ALERT] Need to search {tool_desc} before finalizing answer!")
-                                
-                    #         context.append({
-                    #             "role": "user", 
-                    #             "content": f"Before finalizing your answer, please also search {tool_desc} using {suggested_tool}. We need information from both research papers AND web sources."
-                    #         })
-                    #         continue
-                    
                     self.logger.info("Final answer received")
-                    # print(f"\nFinal answer: {result['result']}")
                     return result["result"]
-                
-                # Add the observation to the conversation
-                # Add a preview of the results in verbose mode
-                # if self.verbose:
-                #     print("\n[OBSERVATION SUMMARY]")
-                #     # Create a preview of the observation (first 150 chars)
-                #     result_text = result["result"]
-                #     preview = result_text[:150] + "..." if len(result_text) > 150 else result_text
-                #     print(f"Received: {preview}")
                     
                 # Format observation with "Observation:" prefix to match examples in prompts.py
                 observation = f"Observation: {result['result']}"
