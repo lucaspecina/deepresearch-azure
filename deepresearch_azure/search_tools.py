@@ -244,11 +244,30 @@ class BingSearchTool(SearchTool):
             self.logger.error(f"Error during Bing search: {str(e)}")
             return None
 
+class AskUserTool(SearchTool):
+    """Tool to ask the user for feedback or clarification"""
+    def __init__(self):
+        super().__init__(
+            name="ask_user",
+            description="Ask the user for feedback or clarification"
+        )
+
+    def execute(self, query):
+        # Prompt the user and return their input
+        print(f"\n[ASK USER] {query}")
+        answer = input("> ")
+        return answer
+
+    def format_result(self, query, result):
+        # Return the raw user input as the formatted observation
+        return result
+
 # Available tools
 RAG_TOOL = RAGSearchTool()
 BING_TOOL = BingSearchTool()
+ASK_USER_TOOL = AskUserTool()
 
 def get_all_tools():
     """Return all available search tools"""
     logger.info("Getting all search tools")
-    return [RAG_TOOL, BING_TOOL] 
+    return [RAG_TOOL, BING_TOOL, ASK_USER_TOOL] 
