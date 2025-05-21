@@ -35,8 +35,23 @@ def main():
     print("DeepResearch ReAct Agent".center(80))
     print("="*80)
 
+    # Read initial query from file if not provided via argument
+    initial_query_from_file = None
+    if not args.query:
+        try:
+            with open("initial_prompt.txt", "r", encoding="utf-8") as f:
+                initial_query_from_file = f.read().strip()
+            if initial_query_from_file:
+                print(f"Loaded initial query from initial_prompt.txt: {initial_query_from_file}")
+            else:
+                print("initial_prompt.txt is empty. Please provide a query.")
+        except FileNotFoundError:
+            print("initial_prompt.txt not found. Please provide a query.")
+        except Exception as e:
+            print(f"Error reading initial_prompt.txt: {e}")
+
     # Start interactive loop
-    next_query = args.query
+    next_query = args.query if args.query else initial_query_from_file
     while True:
         # Prompt for query if none
         if not next_query:

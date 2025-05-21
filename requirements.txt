@@ -2,3 +2,7 @@ autogen-agentchat
 autogen-ext[azure]
 python-dotenv
 azure-identity
+openai
+azure-ai-ml
+azure-search-documents
+requests

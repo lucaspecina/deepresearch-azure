@@ -267,7 +267,11 @@ RAG_TOOL = RAGSearchTool()
 BING_TOOL = BingSearchTool()
 ASK_USER_TOOL = AskUserTool()
 
+# Import and instantiate ArxivSearchTool
+from deepresearch_azure.arxiv_tool import ArxivSearchTool # Assuming arxiv_tool.py is in the same directory
+ARXIV_TOOL = ArxivSearchTool()
+
 def get_all_tools():
     """Return all available search tools"""
     logger.info("Getting all search tools")
-    return [RAG_TOOL, BING_TOOL, ASK_USER_TOOL] 
+    return [RAG_TOOL, BING_TOOL, ASK_USER_TOOL, ARXIV_TOOL] # Add ARXIV_TOOL to the list 
