@@ -10,14 +10,21 @@ from openai import AzureOpenAI
 import deepresearch_azure.config as config
 from deepresearch_azure.search_tools import get_all_tools
 from deepresearch_azure.prompts import REACT_PROMPT
+from deepresearch_azure.session_manager import SessionManager
 
 class ReActAgent:
     """
     ReAct agent that uses a reasoning-action-observation cycle.
     """
     
-    def __init__(self, verbose=False):
-        """Initialize the ReAct agent"""
+    def __init__(self, verbose=False, session_id=None, skip_session_creation=False):
+        """Initialize the ReAct agent
+        
+        Args:
+            verbose (bool): Whether to enable verbose logging
+            session_id (str): Optional session ID to load
+            skip_session_creation (bool): If True, won't create a new session automatically
+        """
         self.tools = {tool.name: tool for tool in get_all_tools()}
         
         # Setup logging
@@ -47,12 +54,29 @@ class ReActAgent:
         
         # Set min iterations before final answer (to encourage tool use)
         self.min_iterations = 2
+
+        # Initialize session manager
+        self.session_manager = SessionManager()
+        self.skip_session_creation = skip_session_creation
+        if session_id:
+            self._load_session(session_id)
         
-        self.logger.info(f"ReAct agent initialized with model: {self.model}")
-        print(f"ReAct agent initialized with model: {self.model}")
-        self.logger.info(f"Available tools: {', '.join(self.tools.keys())}")
-        print(f"Available tools: {', '.join(self.tools.keys())}")
-        
+        if not skip_session_creation:
+            self.logger.info(f"ReAct agent initialized with model: {self.model}")
+            print(f"ReAct agent initialized with model: {self.model}")
+            self.logger.info(f"Available tools: {', '.join(self.tools.keys())}")
+            print(f"Available tools: {', '.join(self.tools.keys())}")
+
+    def _load_session(self, session_id: str):
+        """Load an existing session"""
+        session = self.session_manager.load_session(session_id)
+        # Restore the last query's context if it exists
+        if session["queries"]:
+            last_query = session["queries"][-1]
+            self.context = last_query["context"]
+            self.used_tools = set(last_query["used_tools"])
+            self.original_query = last_query["query"]
+
     def _format_tools_for_prompt(self):
         """Format the available tools for the prompt"""
         tools_list = []
@@ -171,8 +195,14 @@ class ReActAgent:
                 else:
                     print("✗ No papers were analyzed in detail")
                 print("="*60 + "\n")
-                
-            return {"result": arguments.get("answer", "No answer provided"), "is_final": True}
+            
+            # Instead of returning is_final=True, we return is_checkpoint=True
+            # This indicates we want to save progress but continue the conversation
+            return {
+                "result": arguments.get("answer", "No answer provided"), 
+                "is_final": False,
+                "is_checkpoint": True
+            }
         
         if name not in self.tools:
             self.logger.warning(f"Tool '{name}' not found")
@@ -238,15 +268,19 @@ class ReActAgent:
         self.logger.info(f"Running agent with query: {query}")
         print(f"\nQuery: {query}")
         
-        # Reset the used tools and context for this run
-        self.used_tools = set()
-        self.context = []
-        self.original_query = query
+        if self.skip_session_creation:
+            raise ValueError("This agent instance was created for listing sessions only")
         
-        # Initialize conversation history with simple string replacement
+        # Initialize system prompt at the start
         system_prompt = REACT_PROMPT.system_prompt.replace("{tools}", self.tools_description)
         
-        # Add the task to the conversation
+        # If no active session, create one and initialize context
+        if not self.session_manager.current_session:
+            self.session_manager.create_session(query)
+            self.context = []
+            self.used_tools = set()  # Reset tools for new session
+        
+        # Format the initial message with instructions
         initial_message = f"""
 {query}
 
@@ -270,10 +304,24 @@ You have to approach research like a human researcher collaborating with you:
 6. You have to think critically throughout the process - planning, analyzing, reconsidering approaches and ensuring you're addressing the needs effectively.
 
 **ALWAYS CALL AN ACTION, don't forget about it.**
+
+Remember: Your answers are checkpoints in an ongoing conversation. The user may provide feedback or ask follow-up questions.
 """
+        
+        # For existing sessions with context, add a separator
+        if self.context:
+            self.context.append({
+                "role": "system",
+                "content": "\n=== New Research Question ===\n"
+            })
+            self.used_tools = set()  # Reset tools for new query
+        
+        # Add the new query with instructions
         self.context.append({"role": "user", "content": initial_message})
+        self.original_query = query
         
         iteration = 0
+        final_answer = None
         while iteration < config.MAX_ITERATIONS:
             iteration += 1
             self.logger.info(f"Starting iteration {iteration}")
@@ -282,12 +330,12 @@ You have to approach research like a human researcher collaborating with you:
             try:
                 # Generate the next action
                 self.logger.info("Generating model response")
+                messages = [{"role": "system", "content": system_prompt}]  # Always include system prompt
+                messages.extend(self.context)  # Add conversation context
+                
                 response = self.client.chat.completions.create(
                     model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        *self.context
-                    ],
+                    messages=messages,
                     temperature=config.TEMPERATURE,
                     max_tokens=config.MAX_TOKENS
                 )
@@ -307,10 +355,25 @@ You have to approach research like a human researcher collaborating with you:
                 self.logger.info(f"Executing action: {action.get('name')}")
                 result = self._execute_action(action)
                 
-                # If this is the final answer, check if we used both tools
-                if result["is_final"]:
-                    self.logger.info("Final answer received")
-                    return result["result"]
+                # Handle checkpoint (previously final answer)
+                if result.get("is_checkpoint"):
+                    self.logger.info("Checkpoint reached")
+                    final_answer = result["result"]
+                    # Save the query and its context to the session
+                    self.session_manager.add_query_to_session(
+                        query=query,
+                        context=self.context,
+                        used_tools=list(self.used_tools),
+                        final_answer=final_answer
+                    )
+                    
+                    # Add the checkpoint answer to the context
+                    self.context.append({
+                        "role": "assistant",
+                        "content": f"Here's what I've found so far:\n\n{final_answer}\n\nWould you like me to explore any specific aspect further or do you have any questions about this?"
+                    })
+                    
+                    return final_answer
                     
                 # Format observation with "Observation:" prefix to match examples in prompts.py
                 observation = f"Observation: {result['result']}"
@@ -320,8 +383,33 @@ You have to approach research like a human researcher collaborating with you:
                 
             except Exception as e:
                 self.logger.error(f"Error during iteration {iteration}: {e}")
-                return f"Error: {str(e)}"
+                error_msg = f"Error: {str(e)}"
+                # Save the failed query attempt but maintain context
+                self.session_manager.add_query_to_session(
+                    query=query,
+                    context=self.context,
+                    used_tools=list(self.used_tools),
+                    final_answer=error_msg
+                )
+                return error_msg
         
-        # If we reach the maximum number of iterations, return the last response
+        # If we reach the maximum number of iterations, save and return the last response
         self.logger.warning(f"Maximum iterations ({config.MAX_ITERATIONS}) reached without final answer")
-        return "Maximum iterations reached without a final answer." 
+        max_iter_msg = "Maximum iterations reached without a final answer."
+        self.session_manager.add_query_to_session(
+            query=query,
+            context=self.context,
+            used_tools=list(self.used_tools),
+            final_answer=max_iter_msg
+        )
+        return max_iter_msg
+
+    def get_current_session_summary(self):
+        """Get a summary of the current session"""
+        if not self.session_manager.current_session:
+            return None
+        return self.session_manager.get_session_summary()
+
+    def list_available_sessions(self):
+        """List all available research sessions"""
+        return self.session_manager.list_sessions() 

@@ -2,12 +2,44 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: main.py",
+            "name": "Python: main.py (Interactive)",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
             "console": "integratedTerminal",
-            "args": [] // You can add command line arguments here if needed e.g. ["--query", "Your query here", "-v"]
+            "args": []
+        },
+        {
+            "name": "Python: main.py (with Session)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "args": ["--session", "${input:sessionId}"]
+        },
+        {
+            "name": "Python: main.py (Verbose)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "args": ["-v"]
+        },
+        {
+            "name": "Python: main.py (Verbose with Session)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "args": ["-v", "--session", "${input:sessionId}"]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "sessionId",
+            "type": "promptString",
+            "description": "Enter the session ID to load",
+            "default": ""
         }
     ]
 }

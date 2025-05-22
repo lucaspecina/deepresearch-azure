@@ -17,23 +17,60 @@ def setup_logging(verbose=False):
     )
     return logging.getLogger('deepresearch')
 
+def display_sessions():
+    """Display available sessions"""
+    # Create a temporary agent just to list sessions
+    temp_agent = ReActAgent(verbose=False, skip_session_creation=True)
+    sessions = temp_agent.list_available_sessions()
+    if not sessions:
+        print("\nNo previous sessions found.")
+        return None
+    
+    print("\nAvailable sessions:")
+    print("-" * 80)
+    print(f"{'ID':<36} | {'Created':<19} | {'Queries':<7} | {'Initial Query'}")
+    print("-" * 80)
+    
+    for session in sessions:
+        created = session["created_at"][:19]  # Truncate microseconds
+        print(f"{session['session_id']:<36} | {created:<19} | {session['total_queries']:<7} | {session['initial_query'][:50]}")
+    
+    return sessions
+
 def main():
     """Main function for running the DeepResearch agent interactively."""
     parser = argparse.ArgumentParser(description="DeepResearch ReAct Agent (interactive)")
     parser.add_argument("--query", type=str, help="Initial research query to process")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
+    parser.add_argument("--session", type=str, help="Session ID to load")
     args = parser.parse_args()
     
     # Setup logging
     logger = setup_logging(args.verbose)
 
-    # Initialize the agent once
-    agent = ReActAgent(verbose=args.verbose)
-
     # Welcome banner
     print("\n" + "="*80)
     print("DeepResearch ReAct Agent".center(80))
     print("="*80)
+
+    # Determine which session to use
+    session_id = args.session
+    if not session_id:
+        sessions = display_sessions()
+        if sessions:
+            load_session = input("\nWould you like to load a previous session? (y/N): ").lower().strip()
+            if load_session == 'y':
+                session_id = input("Enter the session ID to load: ").strip()
+
+    # Initialize the agent with the chosen session
+    agent = ReActAgent(verbose=args.verbose, session_id=session_id)
+    
+    # If we loaded a session, show its details
+    if session_id:
+        current_session = agent.get_current_session_summary()
+        print(f"\nLoaded session from: {current_session['created_at']}")
+        print(f"Initial query: {current_session['initial_query']}")
+        print(f"Total queries: {current_session['total_queries']}")
 
     # Read initial query from file if not provided via argument
     initial_query_from_file = None
@@ -55,9 +92,46 @@ def main():
     while True:
         # Prompt for query if none
         if not next_query:
-            next_query = input("\nEnter a research query (or 'exit' to quit): ").strip()
-        # Exit condition
-        if not next_query or next_query.lower() in ("exit", "quit"):
+            print("\nAvailable commands:")
+            print("- Enter your research query")
+            print("- 'sessions' to list available sessions")
+            print("- 'load <session_id>' to load a specific session")
+            print("- 'summary' to see current session summary")
+            print("- 'exit' to quit")
+            next_query = input("\nEnter command or query: ").strip()
+
+        # Handle commands
+        if next_query.lower() == 'sessions':
+            display_sessions()
+            next_query = None
+            continue
+        elif next_query.lower().startswith('load '):
+            session_id = next_query[5:].strip()
+            try:
+                agent = ReActAgent(verbose=args.verbose, session_id=session_id)
+                current_session = agent.get_current_session_summary()
+                print(f"\nLoaded session from: {current_session['created_at']}")
+                print(f"Initial query: {current_session['initial_query']}")
+                print(f"Total queries: {current_session['total_queries']}")
+            except Exception as e:
+                print(f"Error loading session: {e}")
+            next_query = None
+            continue
+        elif next_query.lower() == 'summary':
+            current_session = agent.get_current_session_summary()
+            if current_session:
+                print("\nCurrent Session Summary:")
+                print("-" * 40)
+                print(f"Session ID: {current_session['session_id']}")
+                print(f"Created: {current_session['created_at']}")
+                print(f"Last Updated: {current_session['last_updated']}")
+                print(f"Total Queries: {current_session['total_queries']}")
+                print(f"Initial Query: {current_session['initial_query']}")
+            else:
+                print("\nNo active session")
+            next_query = None
+            continue
+        elif not next_query or next_query.lower() in ("exit", "quit"):
             print("\nThank you for using DeepResearch. Goodbye!")
             break
 
@@ -67,46 +141,56 @@ def main():
         print("-"*80)
 
         # Run the agent
-        result = agent.run(next_query)
+        try:
+            result = agent.run(next_query)
 
-        # Show the result
-        print("\n" + "="*80)
-        print("RESULT".center(80))
-        print("="*80)
-        print(result)
-        print("="*80)
+            # Show the result
+            print("\n" + "="*80)
+            print("RESULT".center(80))
+            print("="*80)
+            print(result)
+            print("="*80)
 
-        # Analysis summary
-        print("\n" + "-"*80)
-        print("ANALYSIS SUMMARY".center(80))
-        print("-"*80)
-        if agent.used_tools:
-            if 'search_rag' in agent.used_tools:
-                print("✓ Performed internal documentation search.")
+            # Analysis summary
+            print("\n" + "-"*80)
+            print("ANALYSIS SUMMARY".center(80))
+            print("-"*80)
+            if agent.used_tools:
+                if 'search_rag' in agent.used_tools:
+                    print("✓ Performed internal documentation search.")
+                else:
+                    print("✗ No internal docs search performed.")
+                if 'search_web' in agent.used_tools:
+                    print("✓ Performed web search.")
+                else:
+                    print("✗ No web search performed.")
+                if 'ask_user' in agent.used_tools:
+                    print("✓ Asked clarifying questions to the user.")
+                else:
+                    print("✗ No clarifying questions were asked.")
             else:
-                print("✗ No internal docs search performed.")
-            if 'search_web' in agent.used_tools:
-                print("✓ Performed web search.")
-            else:
-                print("✗ No web search performed.")
-            if 'ask_user' in agent.used_tools:
-                print("✓ Asked clarifying questions to the user.")
-            else:
-                print("✗ No clarifying questions were asked.")
-        else:
-            print("No tools were used in this session.")
-        print("-"*80)
+                print("No tools were used in this session.")
+            print("-"*80)
 
-        # Suggestions to continue the conversation
-        print("\nSuggestions:")
-        print("- Ask for more methodology details")
-        print("- Challenge or refine the conclusion")
-        print("- Ask a follow-up question on this topic")
-        print("- Start a new topic")
+            # Show current session info
+            current_session = agent.get_current_session_summary()
+            if current_session:
+                print(f"\nSession ID: {current_session['session_id']}")
+                print(f"Total queries in this session: {current_session['total_queries']}")
+
+            # Suggestions to continue the conversation
+            print("\nSuggestions:")
+            print("- Ask for more methodology details")
+            print("- Challenge or refine the conclusion")
+            print("- Ask a follow-up question on this topic")
+            print("- Start a new topic")
+            print("- Type 'sessions' to view or load other sessions")
+
+        except Exception as e:
+            print(f"\nError executing query: {e}")
 
         # Next action prompt
-        print("\nWhat would you like to do next? You can ask a follow-up, start a new query, or type 'exit'.")
-        next_query = input("> ").strip()
+        next_query = input("\nWhat would you like to do next? ").strip()
 
 if __name__ == "__main__":
     main() 
