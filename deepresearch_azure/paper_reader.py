@@ -1,9 +1,32 @@
 """
-Paper reader tool for downloading and parsing PDF papers from Arxiv.
+The PaperReaderTool is a specialized tool for downloading, processing, and analyzing academic papers. Here's how it works:
+
+1. Initialization:
+   - Creates a papers directory to store downloaded PDFs
+   - Sets up Azure OpenAI client for text summarization
+   - Inherits from SearchTool base class
+
+2. PDF Download Process:
+   - Handles Arxiv URLs by converting them to PDF format
+   - Downloads PDFs with timeout protection
+   - Verifies content type is actually PDF
+   - Saves files with unique names based on URL
+
+3. PDF Processing:
+   - Uses PyMuPDF (fitz) to extract text from PDFs
+   - Handles multi-page documents
+   - Extracts text while preserving structure
+   - Cleans and formats the extracted text
+
+4. Content Analysis:
+   - Uses Azure OpenAI to generate summaries
+   - Identifies key sections (abstract, methodology, results)
+   - Extracts main findings and conclusions
+   - Provides structured analysis of the paper
 """
 
+
 import os
-import tempfile
 import logging
 import requests
 from pathlib import Path
@@ -21,7 +44,7 @@ class PaperReaderTool(SearchTool):
     def __init__(self):
         super().__init__(
             name="read_paper",
-            description="Download and read a paper from its PDF URL, then summarize its content"
+            description="Download and read a paper from its PDF URL, then summarize its content focusing on the specific research question"
         )
         # Initialize OpenAI client for summarization
         self.client = AzureOpenAI(
@@ -31,8 +54,12 @@ class PaperReaderTool(SearchTool):
         )
         self.model = config.AGENT_MODEL_DEPLOYMENT
         
+        # Create papers directory if it doesn't exist
+        self.papers_dir = Path(__file__).parent.parent / 'papers'
+        self.papers_dir.mkdir(exist_ok=True)
+        
     def download_pdf(self, url):
-        """Download PDF from URL to a temporary file"""
+        """Download PDF from URL to the papers directory"""
         try:
             # Handle arxiv URLs by converting to PDF URL if needed
             if 'arxiv.org' in url and not url.endswith('.pdf'):
@@ -51,10 +78,16 @@ class PaperReaderTool(SearchTool):
                 self.logger.error(f"URL does not point to a PDF file: {content_type}")
                 return None
             
-            # Create temp file with .pdf extension
-            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
-                temp_file.write(response.content)
-                return temp_file.name
+            # Generate a filename from the URL
+            filename = url.split('/')[-1]
+            if not filename.endswith('.pdf'):
+                filename += '.pdf'
+            
+            # Save to papers directory
+            pdf_path = self.papers_dir / filename
+            pdf_path.write_bytes(response.content)
+            
+            return str(pdf_path)
         except requests.exceptions.Timeout:
             self.logger.error("Download timed out")
             return None
@@ -87,15 +120,9 @@ class PaperReaderTool(SearchTool):
         except Exception as e:
             self.logger.error(f"Error extracting text from PDF: {str(e)}")
             return None
-        finally:
-            # Clean up the temporary file
-            try:
-                os.unlink(pdf_path)
-            except:
-                pass
 
-    def summarize_paper(self, text):
-        """Use Azure OpenAI to generate a comprehensive summary of the paper"""
+    def summarize_paper(self, text, research_question):
+        """Use Azure OpenAI to generate a focused summary of the paper based on the research question"""
         try:
             # Split text into chunks if too long
             max_chunk_size = 10000  # Adjust based on model's context window
@@ -103,22 +130,25 @@ class PaperReaderTool(SearchTool):
             
             summaries = []
             for i, chunk in enumerate(chunks):
-                prompt = f"""Please provide a comprehensive summary of this {'part of the ' if len(chunks) > 1 else ''}research paper. Focus on:
-1. Main objectives and research questions
-2. Key methodologies used
-3. Important findings and results
-4. Significant conclusions
-5. Potential applications or implications
+                prompt = f"""Please analyze this {'part of the ' if len(chunks) > 1 else ''}research paper specifically in relation to the following research question:
+
+{research_question}
+
+Focus on:
+1. Information directly relevant to answering the research question
+2. Specific methodologies, results, or findings that address the question
+3. Any limitations or caveats that affect the application of these findings
+4. Practical implications or recommendations related to the question
 
 Here's the paper text{f' (part {i+1}/{len(chunks)})' if len(chunks) > 1 else ''}:
 {chunk}
 
-Please structure the summary clearly and highlight the most important aspects of the research."""
+Please provide a focused summary that specifically addresses the research question."""
 
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[
-                        {"role": "system", "content": "You are a research assistant that creates clear, accurate summaries of academic papers. Focus on the key aspects and maintain academic precision."},
+                        {"role": "system", "content": "You are a research assistant that creates focused, relevant summaries of academic papers. Concentrate on information that directly addresses the given research question."},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0,
@@ -127,18 +157,21 @@ Please structure the summary clearly and highlight the most important aspects of
                 
                 summaries.append(response.choices[0].message.content)
             
-            # If we have multiple summaries, combine them
+            # If we have multiple summaries, combine them with focus on the research question
             if len(summaries) > 1:
-                combined_prompt = f"""Combine these {len(summaries)} summaries of different parts of the same paper into a single coherent summary:
+                combined_prompt = f"""Combine these {len(summaries)} summaries into a single coherent analysis that addresses the research question:
 
+{research_question}
+
+Summaries to combine:
 {chr(10).join(f'Part {i+1}:{chr(10)}{summary}' for i, summary in enumerate(summaries))}
 
-Create a unified summary that captures the key points from all parts."""
+Create a unified analysis that specifically answers the research question, highlighting the most relevant findings and implications."""
 
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[
-                        {"role": "system", "content": "You are a research assistant that creates clear, accurate summaries of academic papers. Focus on the key aspects and maintain academic precision."},
+                        {"role": "system", "content": "You are a research assistant that creates focused, relevant summaries of academic papers. Concentrate on information that directly addresses the given research question."},
                         {"role": "user", "content": combined_prompt}
                     ],
                     temperature=0,
@@ -152,10 +185,11 @@ Create a unified summary that captures the key points from all parts."""
             self.logger.error(f"Error generating summary: {str(e)}")
             return None
 
-    def execute(self, url):
-        """Download, read and summarize a paper from its URL"""
+    def execute(self, url, research_question):
+        """Download, read and summarize a paper from its URL, focusing on the research question"""
         self.logger.info(f"Processing paper from URL: {url}")
         print(f"\n[PAPER READER] Downloading and processing paper from: {url}")
+        print(f"Research Question: {research_question}")
         
         # Download the PDF
         pdf_path = self.download_pdf(url)
@@ -167,8 +201,8 @@ Create a unified summary that captures the key points from all parts."""
         if not text:
             return "Failed to extract text from the paper. The PDF might be corrupted or protected."
         
-        # Generate summary
-        summary = self.summarize_paper(text)
+        # Generate focused summary
+        summary = self.summarize_paper(text, research_question)
         if not summary:
             return "Failed to generate paper summary. Please try again later."
         

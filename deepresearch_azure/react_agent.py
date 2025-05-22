@@ -41,6 +41,10 @@ class ReActAgent:
         # Track which tools have been used
         self.used_tools = set()
         
+        # Initialize conversation context
+        self.context = []
+        self.original_query = None
+        
         # Set min iterations before final answer (to encourage tool use)
         self.min_iterations = 2
         
@@ -182,8 +186,10 @@ class ReActAgent:
         # Handle different argument types for different tools
         if name == "read_paper":
             url = arguments.get("url", "")
-            self.logger.info(f"Executing {name} with URL: {url}")
-            result = tool.execute(url)
+            # Get the research question from the current context
+            research_question = self._get_research_question_from_context()
+            self.logger.info(f"Executing {name} with URL: {url} and research question: {research_question}")
+            result = tool.execute(url, research_question)
             formatted_result = tool.format_result(url, result)
         else:
             query = arguments.get("query", "")
@@ -214,17 +220,31 @@ class ReActAgent:
         
         return {"result": formatted_result, "is_final": False}
     
+    def _get_research_question_from_context(self):
+        """Extract the research question from the conversation context"""
+        # First try to use the original query if available
+        if self.original_query:
+            return self.original_query
+        
+        # Otherwise try to find it in the context
+        for message in self.context:
+            if message["role"] == "user":
+                return message["content"].strip()
+        
+        return "What are the main findings and implications of this research?"
+    
     def run(self, query):
         """Run the ReAct agent on a query"""
         self.logger.info(f"Running agent with query: {query}")
         print(f"\nQuery: {query}")
         
-        # Reset the used tools for this run
+        # Reset the used tools and context for this run
         self.used_tools = set()
+        self.context = []
+        self.original_query = query
         
         # Initialize conversation history with simple string replacement
         system_prompt = REACT_PROMPT.system_prompt.replace("{tools}", self.tools_description)
-        context = []
         
         # Add the task to the conversation
         initial_message = f"""
@@ -251,7 +271,7 @@ You have to approach research like a human researcher collaborating with you:
 
 **ALWAYS CALL AN ACTION, don't forget about it.**
 """
-        context.append({"role": "user", "content": initial_message})
+        self.context.append({"role": "user", "content": initial_message})
         
         iteration = 0
         while iteration < config.MAX_ITERATIONS:
@@ -266,7 +286,7 @@ You have to approach research like a human researcher collaborating with you:
                     model=self.model,
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        *context
+                        *self.context
                     ],
                     temperature=config.TEMPERATURE,
                     max_tokens=config.MAX_TOKENS
@@ -274,13 +294,13 @@ You have to approach research like a human researcher collaborating with you:
                 
                 assistant_message = response.choices[0].message.content
                 print(f"\nAssistant: {assistant_message}")
-                context.append({"role": "assistant", "content": assistant_message})
+                self.context.append({"role": "assistant", "content": assistant_message})
 
                 # Parse and execute the action
                 action = self._parse_action(assistant_message)
                 if not action:
                     self.logger.warning("Failed to parse action, asking for clarification")
-                    context.append({"role": "user", "content": "I couldn't understand your action. Please provide a valid action in the format: Action: {\"name\": \"tool_name\", \"arguments\": {\"query\": \"your query\"}}."})
+                    self.context.append({"role": "user", "content": "I couldn't understand your action. Please provide a valid action in the format: Action: {\"name\": \"tool_name\", \"arguments\": {\"query\": \"your query\"}}."})
                     continue
                 
                 # Execute the action
@@ -295,7 +315,7 @@ You have to approach research like a human researcher collaborating with you:
                 # Format observation with "Observation:" prefix to match examples in prompts.py
                 observation = f"Observation: {result['result']}"
                 print(f"\nObservation: {observation}")
-                context.append({"role": "user", "content": observation})
+                self.context.append({"role": "user", "content": observation})
                 self.logger.info("Added observation to context")
                 
             except Exception as e:
