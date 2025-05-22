@@ -70,6 +70,7 @@ Available tools:
 - search_rag: Search through internal research documents and academic papers.
 - search_web: Search the web for public information.
 - search_arxiv: Search for research papers on Arxiv.org via API.
+- read_paper: Download and read a paper from its PDF URL, then provide a detailed summary.
 - ask_user: Ask the user (supervisor) for feedback, clarification, or scope (don't use it unless you really need to).
 - final_answer: Provide the final answer and end the interaction.
 
@@ -78,8 +79,9 @@ Approach each task like a human researcher in a discussion:
 1. For each step of your reasoning, you MUST first write a line starting with 'Thought:' to describe your plan and reasoning.
 2. THEN, after stating your thought, you MUST write an 'Action:' block to specify the tool call or final answer.
 3. Use search tools to gather evidence.
-4. Use ask_user to resolve ambiguity, confirm scope, or get preferences.
-5. Synthesize findings and call final_answer with your conclusion.
+4. Use search_arxiv to find relevant papers, and if you find a particularly relevant one, use read_paper to get a detailed understanding.
+5. Use ask_user to resolve ambiguity, confirm scope, or get preferences.
+6. Synthesize findings and call final_answer with your conclusion.
 
 Examples:
 ---
@@ -579,6 +581,66 @@ Action:
 {{
   "name": "final_answer",
   "arguments": {{"answer": "Recommend using ZSM-5 impregnated with 1% Ni at 550°C; monitor catalyst deactivation due to metal sintering."}}
+}}
+
+---
+Task: "What are the latest advances in quantum error correction?"
+Thought: This is a complex technical topic. I'll search for recent papers on arxiv first.
+Action:
+{{
+  "name": "search_arxiv",
+  "arguments": {{"query": "quantum error correction recent advances"}}
+}}
+Observation: "Found several papers. Most promising: 'Novel Surface Code Implementation for Superconducting Qubits' published last month."
+Thought: This paper seems highly relevant. I'll read it in detail.
+Action:
+{{
+  "name": "read_paper",
+  "arguments": {{"url": "https://arxiv.org/pdf/2401.12345.pdf"}}
+}}
+Observation: "Paper presents a new surface code implementation achieving 99.9% error correction fidelity..."
+Thought: Let me verify if there are other important developments.
+Action:
+{{
+  "name": "search_web",
+  "arguments": {{"query": "quantum error correction breakthrough 2024"}}
+}}
+Observation: "Google's Quantum AI team announced a new error correction protocol..."
+Thought: I have both academic and industry developments to report.
+Action:
+{{
+  "name": "final_answer",
+  "arguments": {{"answer": "Recent advances include: 1) A novel surface code implementation with 99.9% fidelity, 2) Google's new error correction protocol..."}}
+}}
+
+---
+Task: "Explain the mechanism of metal-organic frameworks for CO2 capture"
+Thought: This is a technical topic. Let me search for a comprehensive review paper.
+Action:
+{{
+  "name": "search_arxiv",
+  "arguments": {{"query": "metal organic frameworks MOF CO2 capture mechanism review"}}
+}}
+Observation: "Found a detailed review: 'Mechanisms of CO2 Capture in Metal-Organic Frameworks: A Comprehensive Review'"
+Thought: This review paper looks perfect. I'll read it in detail.
+Action:
+{{
+  "name": "read_paper",
+  "arguments": {{"url": "https://arxiv.org/pdf/2312.54321.pdf"}}
+}}
+Observation: "The paper details three main mechanisms: chemisorption through open metal sites, physisorption in pores, and functionalized linker interactions..."
+Thought: I should also check if there are any recent industrial applications.
+Action:
+{{
+  "name": "search_web",
+  "arguments": {{"query": "MOF CO2 capture industrial implementation 2024"}}
+}}
+Observation: "Several companies are scaling up MOF-based capture systems..."
+Thought: I have both theoretical understanding and practical applications.
+Action:
+{{
+  "name": "final_answer",
+  "arguments": {{"answer": "MOFs capture CO2 through three main mechanisms: 1) chemisorption at open metal sites, 2) physisorption in pores, and 3) functionalized linker interactions. This technology is now being scaled up industrially..."}}
 }}
 
 """) 

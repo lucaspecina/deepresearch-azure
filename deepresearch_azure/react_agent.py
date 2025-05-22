@@ -118,6 +118,14 @@ class ReActAgent:
                         "name": "search_web",
                         "arguments": {"query": query_match.group(1)}
                     }
+            elif "read_paper" in action_match.group(0):
+                url_match = re.search(r'"url":\s*"([^"]+)"', action_match.group(0))
+                if url_match:
+                    self.logger.info(f"Fallback parsing: Using read_paper with URL: {url_match.group(1)}")
+                    return {
+                        "name": "read_paper",
+                        "arguments": {"url": url_match.group(1)}
+                    }
             elif "final_answer" in action_match.group(0):
                 answer_match = re.search(r'"answer":\s*"([^"]+)"', action_match.group(0))
                 if answer_match:
@@ -153,6 +161,11 @@ class ReActAgent:
                     print("✓ WEB SOURCES were searched (Bing)")
                 else:
                     print("✗ WEB SOURCES were NOT searched (Bing)")
+                    
+                if "read_paper" in self.used_tools:
+                    print("✓ PAPERS were downloaded and analyzed in detail")
+                else:
+                    print("✗ No papers were analyzed in detail")
                 print("="*60 + "\n")
                 
             return {"result": arguments.get("answer", "No answer provided"), "is_final": True}
@@ -165,26 +178,39 @@ class ReActAgent:
         self.used_tools.add(name)
         
         tool = self.tools[name]
-        query = arguments.get("query", "")
         
-        # Print detailed info for the user to see what's happening
-        if self.verbose:
-            if name == "search_rag":
-                print(f"\n[USING RAG SEARCH] Searching research papers for: {query}")
-                print("-" * 60)
-                print("This search looks through academic papers, research documents, and scientific literature.")
-                print("Results will include information from peer-reviewed sources and academic publications.")
-                print("-" * 60)
-            elif name == "search_web":
-                print(f"\n[USING BING SEARCH] Searching the web for: {query}")
-                print("-" * 60)
-                print("This search looks through web pages, news articles, blogs, and other online sources.")
-                print("Results will include the most recent and relevant information from the internet.")
-                print("-" * 60)
-        
-        self.logger.info(f"Executing {name} with query: {query}")
-        result = tool.execute(query)
-        formatted_result = tool.format_result(query, result)
+        # Handle different argument types for different tools
+        if name == "read_paper":
+            url = arguments.get("url", "")
+            self.logger.info(f"Executing {name} with URL: {url}")
+            result = tool.execute(url)
+            formatted_result = tool.format_result(url, result)
+        else:
+            query = arguments.get("query", "")
+            # Print detailed info for the user to see what's happening
+            if self.verbose:
+                if name == "search_rag":
+                    print(f"\n[USING RAG SEARCH] Searching research papers for: {query}")
+                    print("-" * 60)
+                    print("This search looks through academic papers, research documents, and scientific literature.")
+                    print("Results will include information from peer-reviewed sources and academic publications.")
+                    print("-" * 60)
+                elif name == "search_web":
+                    print(f"\n[USING BING SEARCH] Searching the web for: {query}")
+                    print("-" * 60)
+                    print("This search looks through web pages, news articles, blogs, and other online sources.")
+                    print("Results will include the most recent and relevant information from the internet.")
+                    print("-" * 60)
+                elif name == "search_arxiv":
+                    print(f"\n[USING ARXIV SEARCH] Searching arxiv papers for: {query}")
+                    print("-" * 60)
+                    print("This search looks through academic papers on Arxiv.")
+                    print("Results will include recent research papers and preprints.")
+                    print("-" * 60)
+            
+            self.logger.info(f"Executing {name} with query: {query}")
+            result = tool.execute(query)
+            formatted_result = tool.format_result(query, result)
         
         return {"result": formatted_result, "is_final": False}
     
@@ -208,10 +234,11 @@ IMPORTANT INSTRUCTIONS:
 You have to approach research like a human researcher collaborating with you:
 
 1. You have to first reflect on your question to understand what you're asking and plan your approach.
-2. You have three main research tools:
+2. You have main research tools:
    - search_rag: For searching internal documents and research papers
    - search_web: For searching public information on the internet
    - search_arxiv: For searching academic papers on Arxiv.org
+   - read_paper: For downloading and reading academic papers
    - ask_user: Ask the user (supervisor) for feedback, clarification, or scope (don't use it unless you really need to)
 
 3. For technical questions like "How can I quantify paraffin content in crude oil?", you have to check both internal resources and public information, asking clarifying questions when needed.
